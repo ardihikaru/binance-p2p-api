@@ -1,8 +1,15 @@
 package binance_p2p_api
 
 const (
-	bapi        = "https://p2p.binance.com/bapi"
-	getExchange = "/c2c/v2/friendly/c2c/adv/search"
+	bapi          = "/bapi"
+	getExchange   = "/c2c/v2/friendly/c2c/adv/search"
+	getAdvProfile = "/en/advertiserDetail?advertiserNo="
+)
+
+// user type
+const (
+	User     = "user"
+	Merchant = "merchant" // pro merchant
 )
 
 const (
@@ -13,7 +20,6 @@ const (
 	HeaderUserAgent   = "User-Agent"
 
 	ApplicationJsonContentType = "application/json"
-	P2PBinanceOrigin           = "https://p2p.binance.com"
 	NoCashPragma               = "no-cache"
 	TrailersTE                 = "Trailers"
 	MozillaUserAgent           = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:88.0) Gecko/20100101 Firefox/88.0"
@@ -25,15 +31,19 @@ const (
 )
 
 type Request struct {
-	Asset         string   `json:"asset"`
-	Fiat          string   `json:"fiat"`
-	MerchantCheck bool     `json:"merchantCheck"`
-	Page          int      `json:"page"`
-	PayTypes      []string `json:"payTypes"`
-	PublisherType *string  `json:"publisherType"`
-	Rows          int      `json:"rows"`
-	TradeType     string   `json:"tradeType"`
-	TransAmount   float64  `json:"transAmount"`
+	Asset             string   `json:"asset"`
+	Fiat              string   `json:"fiat"`
+	MerchantCheck     bool     `json:"merchantCheck"`
+	Page              int      `json:"page"`
+	PayTypes          []string `json:"payTypes"`
+	PublisherType     *string  `json:"publisherType"` // Only show Merchant Ads (if nil, it will show all data)
+	ProMerchantAds    bool     `json:"proMerchantAds"`
+	ShieldMerchantAds bool     `json:"shieldMerchantAds"`
+	Rows              int      `json:"rows"`
+	TradeType         string   `json:"tradeType"` // use OperationBuy or OperationSell
+	TransAmount       float64  `json:"transAmount"`
+	Countries         []string `json:"countries"`
+	OrderBy           *string  `json:"order"` // use TradeCount or CompletionRate
 }
 
 type Response struct {
@@ -48,6 +58,27 @@ type Response struct {
 type Data struct {
 	Adv        Adv        `json:"adv"`
 	Advertiser Advertiser `json:"advertiser"`
+}
+
+type ExchangeDataReport struct {
+	ExchangeData              []ExchangeData `json:"exchange_data"`
+	CheapestAdvertiserPro     ExchangeData   `json:"cheapest_advertiser_pro"` // verified merchant
+	CheapestAdvertiserGeneral ExchangeData   `json:"cheapest_advertiser_general"`
+}
+
+type ExchangeData struct {
+	AdvertiserProfileUrl string           `json:"advertiser_profile_url"`
+	AdvertiserUserNo     string           `json:"advertiser_user_no"`
+	AdvertiserName       string           `json:"advertiser_name"`
+	ProMerchant          bool             `json:"pro_merchant"`
+	TotalOrder           int              `json:"total_order"`
+	CompletionRate       float64          `json:"completion_rate"`
+	CommisionRate        float64          `json:"commision_rate"`
+	Price                float64          `json:"price"`
+	Stock                float64          `json:"stock"`
+	PaymentMethods       []PaymentMethods `json:"payment_methods"`
+	MinSingleTransAmount float64          `json:"min_single_trans_amount"`
+	MaxSingleTransAmount float64          `json:"max_single_trans_amount"`
 }
 
 type Adv struct {
@@ -124,6 +155,12 @@ type TradeMethods struct {
 	TradeMethodName      string      `json:"tradeMethodName"`
 	TradeMethodShortName string      `json:"tradeMethodShortName"`
 	TradeMethodBgColor   string      `json:"tradeMethodBgColor"`
+}
+
+type PaymentMethods struct {
+	Identifier string `json:"identifier"`
+	Name       string `json:"name"`
+	ShortName  string `json:"short_name"`
 }
 
 type Advertiser struct {

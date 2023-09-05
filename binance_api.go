@@ -3,58 +3,211 @@ package binance_p2p_api
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"strconv"
 	"time"
 )
 
 type BinanceP2PApi struct {
+	p2pOriginUrl string // e.g. https://p2p.binance.me or https://p2p.binance.com
 }
 
-func NewBinanceP2PApi() *BinanceP2PApi {
-	return &BinanceP2PApi{}
+// NewBinanceP2PApi creates new binance P2P service
+// source: https://p2p.binance.me/en/trade/sell/USDT?fiat=IDR&payment=all-payments
+func NewBinanceP2PApi(p2pOriginUrl string) *BinanceP2PApi {
+	return &BinanceP2PApi{
+		p2pOriginUrl: p2pOriginUrl,
+	}
 }
 
-func (b *BinanceP2PApi) GetExchange(assets string, fiat string, payTypes []string,
-	tradeType string, transAmount float64) (exchange float64, minAmount float64, maxAmount float64,
-	err error) {
-	rawExchange, err := b.GetExchangesRaw(assets, fiat, 1, payTypes, 1, tradeType, transAmount)
-	if err != nil {
-		return 0, 0, 0, err
+// GetExchange fetches exchange information
+func (b *BinanceP2PApi) GetExchange(assets string, fiat string, maxPage, rows int, payTypes []string,
+	tradeType string, transAmount float64, countries []string, proMerchantAds, shieldMerchantAds, ignoreZeroOrder bool,
+	publisherType, orderBy *string) (*ExchangeDataReport, error) {
+
+	var exchangeData []ExchangeData
+	var cheapAdvPro ExchangeData
+	var cheapAdvGeneral ExchangeData
+	edReport := ExchangeDataReport{
+		ExchangeData:              exchangeData,
+		CheapestAdvertiserPro:     cheapAdvPro,
+		CheapestAdvertiserGeneral: cheapAdvGeneral,
 	}
 
-	if len(rawExchange.Data) == 0 {
-		return 0, 0, 0, errors.New("no results")
+	// infinite loop until no record in the data
+	page := 1
+	for {
+		// if max page, break
+		if page == maxPage {
+			break
+		}
+
+		rawExchange, err := b.GetExchangesRaw(assets, fiat, page, payTypes, rows, tradeType, transAmount, countries,
+			proMerchantAds, shieldMerchantAds, publisherType, orderBy)
+		if err != nil {
+			return nil, err
+		}
+
+		if len(rawExchange.Data) == 0 {
+			break // break here
+		}
+
+		// adds to report
+		for _, data := range rawExchange.Data {
+			thisExData := extractExchangeData(data, b.p2pOriginUrl)
+			edReport.ExchangeData = append(edReport.ExchangeData, thisExData)
+
+			// if empty, set default
+			if edReport.CheapestAdvertiserPro.AdvertiserName == "" && thisExData.ProMerchant {
+				edReport.CheapestAdvertiserPro = thisExData
+			}
+			if edReport.CheapestAdvertiserGeneral.AdvertiserName == "" && !thisExData.ProMerchant {
+				// if ignoreZeroOrder enabled, verify first
+				if ignoreZeroOrder && thisExData.TotalOrder == 0 {
+					// ignores
+				} else {
+					edReport.CheapestAdvertiserGeneral = thisExData
+				}
+			}
+
+			currentPrice := thisExData.Price
+			proCurPrice := edReport.CheapestAdvertiserPro.Price
+			GeneralCurPrice := edReport.CheapestAdvertiserGeneral.Price
+			// adds the cheapest one (pro merchant)
+			if isCheaperPrice(tradeType, currentPrice, proCurPrice, thisExData.ProMerchant) {
+				edReport.CheapestAdvertiserPro = thisExData
+			}
+
+			// adds the cheapest one (normal merchant)
+			if isCheaperPrice(tradeType, currentPrice, GeneralCurPrice, !thisExData.ProMerchant) {
+				if ignoreZeroOrder && thisExData.TotalOrder == 0 {
+					// ignores
+				} else {
+					edReport.CheapestAdvertiserGeneral = thisExData
+				}
+			}
+
+		}
+
+		// if records < rows, break now
+		if len(rawExchange.Data) < rows {
+			break
+		}
+
+		// go to next page
+		page = page + 1
 	}
 
-	exchange, err = strconv.ParseFloat(rawExchange.Data[0].Adv.Price, 32)
-	if err != nil {
-		return 0, 0, 0, err
-	}
-	minAmount, err = strconv.ParseFloat(rawExchange.Data[0].Adv.MinSingleTransAmount, 32)
-	if err != nil {
-		return 0, 0, 0, err
-	}
-	maxAmount, err = strconv.ParseFloat(rawExchange.Data[0].Adv.MaxSingleTransAmount, 32)
-	if err != nil {
-		return 0, 0, 0, err
-	}
-
-	return exchange, minAmount, maxAmount, nil
+	return &edReport, nil
 }
 
+// isCheaperPrice verifies the cheapest price
+func isCheaperPrice(tradeType string, currentPrice, comparedPrice float64, proMerchant bool) bool {
+	// adds the cheapest one (pro merchant)
+	if tradeType == OperationBuy {
+		return isCheaperBuyPrice(currentPrice, comparedPrice, proMerchant)
+	} else {
+		return isCheaperSellPrice(currentPrice, comparedPrice, proMerchant)
+	}
+}
+
+// isCheaperBuyPrice verifies the cheapest buy price
+// cheaper means the SMALLEST price value
+func isCheaperBuyPrice(currentPrice, comparedPrice float64, proMerchant bool) bool {
+	// adds the cheapest one (pro merchant)
+	if currentPrice < comparedPrice && proMerchant {
+		return true
+	} else {
+		return false
+	}
+}
+
+// isCheaperSellPrice verifies the cheapest sell price
+// cheaper means the HIGHEST price value
+func isCheaperSellPrice(currentPrice, comparedPrice float64, proMerchant bool) bool {
+	// adds the cheapest one (pro merchant)
+	if currentPrice > comparedPrice && comparedPrice != 0 && proMerchant {
+		return true
+	} else {
+		return false
+	}
+}
+
+// toFloat casts string value to float
+func toFloat(val string) float64 {
+	price, _ := strconv.ParseFloat(val, 32)
+
+	return price
+}
+
+// extractPaymentMethods extracts payment methods
+func extractPaymentMethods(pmList []TradeMethods) []PaymentMethods {
+	var pms []PaymentMethods
+
+	for _, method := range pmList {
+		pm := PaymentMethods{
+			Identifier: method.Identifier,
+			Name:       method.TradeMethodName,
+			ShortName:  method.TradeMethodShortName,
+		}
+		pms = append(pms, pm)
+	}
+
+	return pms
+}
+
+// toProMerchant casts to merchant status
+func toProMerchant(userType string) bool {
+	if userType == Merchant {
+		return true
+	} else {
+		return false
+	}
+}
+
+// extractExchangeData extracts exchange data
+func extractExchangeData(data Data, p2pOriginUrl string) ExchangeData {
+	profileUrl := p2pOriginUrl + getAdvProfile + data.Advertiser.UserNo
+
+	exchangeData := ExchangeData{
+		AdvertiserProfileUrl: profileUrl,
+		AdvertiserUserNo:     data.Advertiser.UserNo,
+		AdvertiserName:       data.Advertiser.NickName,
+		ProMerchant:          toProMerchant(data.Advertiser.UserType),
+		TotalOrder:           data.Advertiser.MonthOrderCount,
+		CompletionRate:       data.Advertiser.MonthFinishRate * 100,
+		CommisionRate:        toFloat(data.Adv.CommissionRate),
+		Price:                toFloat(data.Adv.Price),
+		Stock:                toFloat(data.Adv.SurplusAmount),
+		PaymentMethods:       extractPaymentMethods(data.Adv.TradeMethods),
+		MinSingleTransAmount: toFloat(data.Adv.MinSingleTransAmount),
+		MaxSingleTransAmount: toFloat(data.Adv.MaxSingleTransAmount),
+	}
+
+	return exchangeData
+}
+
+// GetExchangesRaw extracts RAW exchange data
 func (b *BinanceP2PApi) GetExchangesRaw(assets string, fiat string, page int, payTypes []string,
-	rows int, tradeType string, transAmount float64) (Response, error) {
+	rows int, tradeType string, transAmount float64, countries []string, proMerchantAds, shieldMerchantAds bool,
+	publisherType, orderBy *string) (Response, error) {
 
 	body := Request{
-		Asset:       assets,
-		Fiat:        fiat,
-		Page:        page,
-		PayTypes:    payTypes,
-		Rows:        rows,
-		TradeType:   tradeType,
-		TransAmount: transAmount,
+		Asset:             assets,            // e.g. USDT
+		Fiat:              fiat,              // e.g. IDR
+		Page:              page,              // e.g. 1
+		PayTypes:          payTypes,          // e.g. [] (to show all available trade types
+		Rows:              rows,              // e.g. 10
+		TradeType:         tradeType,         // e.g. SELL or BUY
+		TransAmount:       transAmount,       // e.g. 750000
+		Countries:         countries,         // e.g. ["ID"]
+		ProMerchantAds:    proMerchantAds,    // e.g. false
+		ShieldMerchantAds: shieldMerchantAds, // e.g. false
+		OrderBy:           orderBy,           // e.g. completion_rate or trade_count
+	}
+
+	if publisherType != nil {
+		body.PublisherType = publisherType // e.g. merchant
 	}
 
 	bodyJson, err := json.Marshal(body)
@@ -63,12 +216,12 @@ func (b *BinanceP2PApi) GetExchangesRaw(assets string, fiat string, page int, pa
 	}
 
 	bodyReader := bytes.NewReader(bodyJson)
-	request, err := http.NewRequest("POST", bapi+getExchange, bodyReader)
+	request, err := http.NewRequest("POST", b.p2pOriginUrl+bapi+getExchange, bodyReader)
 	if err != nil {
 		return Response{}, err
 	}
 	request.Header.Set(HeaderContentType, ApplicationJsonContentType)
-	request.Header.Set(HeaderOrigin, P2PBinanceOrigin)
+	request.Header.Set(HeaderOrigin, b.p2pOriginUrl)
 	request.Header.Set(HeaderPragma, NoCashPragma)
 	request.Header.Set(HeaderTE, TrailersTE)
 	request.Header.Set(HeaderUserAgent, MozillaUserAgent)
