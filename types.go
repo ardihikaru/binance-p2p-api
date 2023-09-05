@@ -1,8 +1,9 @@
 package binance_p2p_api
 
 const (
-	bapi        = "/bapi"
-	getExchange = "/c2c/v2/friendly/c2c/adv/search"
+	bapi          = "/bapi"
+	getExchange   = "/c2c/v2/friendly/c2c/adv/search"
+	getAdvProfile = "/en/advertiserDetail?advertiserNo="
 )
 
 // user type
@@ -66,6 +67,7 @@ type ExchangeDataReport struct {
 }
 
 type ExchangeData struct {
+	AdvertiserProfileUrl string           `json:"advertiser_profile_url"`
 	AdvertiserUserNo     string           `json:"advertiser_user_no"`
 	AdvertiserName       string           `json:"advertiser_name"`
 	ProMerchant          bool             `json:"pro_merchant"`
