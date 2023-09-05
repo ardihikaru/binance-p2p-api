@@ -49,7 +49,7 @@ func (b *BinanceP2PApi) GetExchange(assets string, fiat string, row int, payType
 
 		// adds to report
 		for _, data := range rawExchange.Data {
-			thisExData := extractExchangeData(data)
+			thisExData := extractExchangeData(data, b.p2pOriginUrl)
 			edReport.ExchangeData = append(edReport.ExchangeData, thisExData)
 
 			// if empty, set default
@@ -129,8 +129,11 @@ func toProMerchant(userType string) bool {
 }
 
 // extractExchangeData extracts exchange data
-func extractExchangeData(data Data) ExchangeData {
+func extractExchangeData(data Data, p2pOriginUrl string) ExchangeData {
+	profileUrl := p2pOriginUrl + getAdvProfile + data.Advertiser.UserNo
+
 	exchangeData := ExchangeData{
+		AdvertiserProfileUrl: profileUrl,
 		AdvertiserUserNo:     data.Advertiser.UserNo,
 		AdvertiserName:       data.Advertiser.NickName,
 		ProMerchant:          toProMerchant(data.Advertiser.UserType),
