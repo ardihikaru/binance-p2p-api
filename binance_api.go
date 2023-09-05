@@ -21,7 +21,7 @@ func NewBinanceP2PApi(p2pOriginUrl string) *BinanceP2PApi {
 }
 
 // GetExchange fetches exchange information
-func (b *BinanceP2PApi) GetExchange(assets string, fiat string, row int, payTypes []string,
+func (b *BinanceP2PApi) GetExchange(assets string, fiat string, maxPage, rows int, payTypes []string,
 	tradeType string, transAmount float64, countries []string, proMerchantAds, shieldMerchantAds, ignoreZeroOrder bool,
 	publisherType, orderBy *string) (*ExchangeDataReport, error) {
 
@@ -37,7 +37,12 @@ func (b *BinanceP2PApi) GetExchange(assets string, fiat string, row int, payType
 	// infinite loop until no record in the data
 	page := 1
 	for {
-		rawExchange, err := b.GetExchangesRaw(assets, fiat, page, payTypes, row, tradeType, transAmount, countries,
+		// if max page, break
+		if page == maxPage {
+			break
+		}
+
+		rawExchange, err := b.GetExchangesRaw(assets, fiat, page, payTypes, rows, tradeType, transAmount, countries,
 			proMerchantAds, shieldMerchantAds, publisherType, orderBy)
 		if err != nil {
 			return nil, err
@@ -68,13 +73,13 @@ func (b *BinanceP2PApi) GetExchange(assets string, fiat string, row int, payType
 			currentPrice := thisExData.Price
 			proCurPrice := edReport.CheapestAdvertiserPro.Price
 			GeneralCurPrice := edReport.CheapestAdvertiserGeneral.Price
-			// adds cheapest one (pro merchant)
-			if currentPrice < proCurPrice && thisExData.ProMerchant {
+			// adds the cheapest one (pro merchant)
+			if isCheaperPrice(tradeType, currentPrice, proCurPrice, thisExData.ProMerchant) {
 				edReport.CheapestAdvertiserPro = thisExData
 			}
 
-			// adds cheapest one (normal merchant)
-			if currentPrice < GeneralCurPrice && !thisExData.ProMerchant {
+			// adds the cheapest one (normal merchant)
+			if isCheaperPrice(tradeType, currentPrice, GeneralCurPrice, !thisExData.ProMerchant) {
 				if ignoreZeroOrder && thisExData.TotalOrder == 0 {
 					// ignores
 				} else {
@@ -85,7 +90,7 @@ func (b *BinanceP2PApi) GetExchange(assets string, fiat string, row int, payType
 		}
 
 		// if records < rows, break now
-		if len(rawExchange.Data) < row {
+		if len(rawExchange.Data) < rows {
 			break
 		}
 
@@ -94,6 +99,38 @@ func (b *BinanceP2PApi) GetExchange(assets string, fiat string, row int, payType
 	}
 
 	return &edReport, nil
+}
+
+// isCheaperPrice verifies the cheapest price
+func isCheaperPrice(tradeType string, currentPrice, comparedPrice float64, proMerchant bool) bool {
+	// adds the cheapest one (pro merchant)
+	if tradeType == OperationBuy {
+		return isCheaperBuyPrice(currentPrice, comparedPrice, proMerchant)
+	} else {
+		return isCheaperSellPrice(currentPrice, comparedPrice, proMerchant)
+	}
+}
+
+// isCheaperBuyPrice verifies the cheapest buy price
+// cheaper means the SMALLEST price value
+func isCheaperBuyPrice(currentPrice, comparedPrice float64, proMerchant bool) bool {
+	// adds the cheapest one (pro merchant)
+	if currentPrice < comparedPrice && proMerchant {
+		return true
+	} else {
+		return false
+	}
+}
+
+// isCheaperSellPrice verifies the cheapest sell price
+// cheaper means the HIGHEST price value
+func isCheaperSellPrice(currentPrice, comparedPrice float64, proMerchant bool) bool {
+	// adds the cheapest one (pro merchant)
+	if currentPrice > comparedPrice && comparedPrice != 0 && proMerchant {
+		return true
+	} else {
+		return false
+	}
 }
 
 // toFloat casts string value to float
