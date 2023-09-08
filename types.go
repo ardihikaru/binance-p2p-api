@@ -62,6 +62,7 @@ type Data struct {
 
 type ExchangeDataReport struct {
 	ExchangeData              []ExchangeData `json:"exchange_data"`
+	MyAdvertiserData          ExchangeData   `json:"my_advertiser_data"`      // my merchant data
 	CheapestAdvertiserPro     ExchangeData   `json:"cheapest_advertiser_pro"` // verified merchant
 	CheapestAdvertiserGeneral ExchangeData   `json:"cheapest_advertiser_general"`
 }

@@ -21,15 +21,17 @@ func NewBinanceP2PApi(p2pOriginUrl string) *BinanceP2PApi {
 }
 
 // GetExchange fetches exchange information
-func (b *BinanceP2PApi) GetExchange(assets string, fiat string, maxPage, rows int, payTypes []string,
+func (b *BinanceP2PApi) GetExchange(userNo *string, assets string, fiat string, maxPage, rows int, payTypes []string,
 	tradeType string, transAmount float64, countries []string, proMerchantAds, shieldMerchantAds, ignoreZeroOrder bool,
 	publisherType, orderBy *string) (*ExchangeDataReport, error) {
 
 	var exchangeData []ExchangeData
+	var myAdv ExchangeData
 	var cheapAdvPro ExchangeData
 	var cheapAdvGeneral ExchangeData
 	edReport := ExchangeDataReport{
 		ExchangeData:              exchangeData,
+		MyAdvertiserData:          myAdv,
 		CheapestAdvertiserPro:     cheapAdvPro,
 		CheapestAdvertiserGeneral: cheapAdvGeneral,
 	}
@@ -56,6 +58,11 @@ func (b *BinanceP2PApi) GetExchange(assets string, fiat string, maxPage, rows in
 		for _, data := range rawExchange.Data {
 			thisExData := extractExchangeData(data, b.p2pOriginUrl)
 			edReport.ExchangeData = append(edReport.ExchangeData, thisExData)
+
+			// if my userNo exists, capture it
+			if userNo != nil && edReport.MyAdvertiserData.AdvertiserName == "" && thisExData.AdvertiserUserNo == *userNo {
+				edReport.MyAdvertiserData = thisExData
+			}
 
 			// if empty, set default
 			if edReport.CheapestAdvertiserPro.AdvertiserName == "" && thisExData.ProMerchant {
